@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import torchvision.transforms as T
 from PIL import Image, ImageFilter
 import  torch.nn  as nn
-from examples.unianimate_wan.config import parse_args
+from config import parse_args
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 class TextVideoDataset_onestage(torch.utils.data.Dataset):
