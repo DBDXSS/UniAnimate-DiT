@@ -18,6 +18,7 @@ import  torch.nn  as nn
 import cv2
 import sys  
 sys.path.append("../../")  
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # define hight and width
 height = 1280
@@ -28,12 +29,7 @@ use_teacache = False
 
 test_list_path= [
     # Format: [frame_interval, reference image, driving pose sequence]
-    [1, "data/images/WOMEN-Blouses_Shirts-id_00004955-01_4_full.jpg", "data/saved_pose/WOMEN-Blouses_Shirts-id_00004955-01_4_full"],
-    [1, "data/images/musk.jpg", "data/saved_pose/musk"],
-    [1, "data/images/WOMEN-Blouses_Shirts-id_00005125-03_4_full.jpg", "data/saved_pose/WOMEN-Blouses_Shirts-id_00005125-03_4_full"],
-    [1, "data/images/IMG_20240514_104337.jpg", "data/saved_pose/IMG_20240514_104337"],
-    [1, "data/images/10.jpg", "data/saved_pose/10"],
-    [1, "data/images/taiyi2.jpg", "data/saved_pose/taiyi2"],
+    [1, "data/images/dawei.jpg", "data/saved_pose/dawei_dance"],
 ]
 
 misc_size = [height,width]
@@ -222,8 +218,8 @@ for path_dir_per in test_list_path:
         negative_prompt="细节模糊不清，字幕，作品，画作，画面，静止，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，杂乱的背景，三条腿，背景人很多，倒着走",
         input_image=ref_frame,
         num_inference_steps=50,
-        cfg_scale=1.5, # slow
-        # cfg_scale=1.0, # fast
+        # cfg_scale=1.5, # slow
+        cfg_scale=1.0, # fast
         num_frames=max_frames,
         seed=seed, tiled=True,
         dwpose_data=dwpose_data,
@@ -239,7 +235,8 @@ for path_dir_per in test_list_path:
     video_out = []
     for ii in range(len(video)):
         ss = video[ii]
-        video_out.append(image_compose_width(video_out_condition[ii], ss))
+        # video_out.append(image_compose_width(video_out_condition[ii], ss))
+        video_out.append(ss)
     os.makedirs("./outputs", exist_ok=True)
     save_video(video_out, "outputs/video_720P_long_{}_{}.mp4".format(ref_image_path.split('/')[-1], pose_file_path.split('/')[-1]), fps=15, quality=5)
 

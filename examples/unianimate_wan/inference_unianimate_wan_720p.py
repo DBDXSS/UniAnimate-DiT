@@ -17,23 +17,29 @@ from PIL import Image, ImageFilter
 import  torch.nn  as nn
 import cv2
 import sys  
+from datetime import datetime
+import argparse
 sys.path.append("../../")  
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--source', '-s', type=str, default="data/images/10.jpg", help='source image')
+parser.add_argument('--drive', '-d', type=str, default="data/saved_pose/10_source", help='drive video')
+parser.add_argument('--cfg_scale', '-cfg', type=float, default=1.0, help='cfg_scale, 1.0 means faster')
+parser.add_argument('--use_teacache', '-ut', type=bool, default=False, help='use teacache accelerate')
+args = parser.parse_args()
 
 # define hight and width
 height = 1280
 width = 720
 seed = 0
 max_frames = 81
-use_teacache = False
+use_teacache = args.use_teacache
 
 test_list_path= [
     # Format: [frame_interval, reference image, driving pose sequence]
-    [1, "data/images/WOMEN-Blouses_Shirts-id_00004955-01_4_full.jpg", "data/saved_pose/WOMEN-Blouses_Shirts-id_00004955-01_4_full"],
-    [1, "data/images/musk.jpg", "data/saved_pose/musk"],
-    [1, "data/images/WOMEN-Blouses_Shirts-id_00005125-03_4_full.jpg", "data/saved_pose/WOMEN-Blouses_Shirts-id_00005125-03_4_full"],
-    [1, "data/images/IMG_20240514_104337.jpg", "data/saved_pose/IMG_20240514_104337"],
-    [1, "data/images/10.jpg", "data/saved_pose/10"],
-    [1, "data/images/taiyi2.jpg", "data/saved_pose/taiyi2"],
+    [1, args.source, args.drive],
+    # [1, "data/images/dawei.jpg", "data/saved_pose/dawei_dance"],
 ]
 
 misc_size = [height,width]
@@ -123,7 +129,8 @@ for path_dir_per in test_list_path:
         stride = max((_total_frame_num//max_frames),1)
         end_frame = min(stride*max_frames, _total_frame_num)
     else:
-        start_frame = random.randint(0, _total_frame_num-cover_frame_num-1)
+        # start_frame = random.randint(0, _total_frame_num-cover_frame_num-1)
+        start_frame = 0
         end_frame = start_frame + cover_frame_num
     frame_list = []
     dwpose_list = []
@@ -222,8 +229,9 @@ for path_dir_per in test_list_path:
         negative_prompt="细节模糊不清，字幕，作品，画作，画面，静止，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，杂乱的背景，三条腿，背景人很多，倒着走",
         input_image=ref_frame,
         num_inference_steps=50,
-        cfg_scale=1.5, # slow
+        # cfg_scale=1.5, # slow
         # cfg_scale=1.0, # fast
+        cfg_scale=args.cfg_scale,
         seed=seed, tiled=True,
         dwpose_data=dwpose_data,
         random_ref_dwpose=random_ref_dwpose_tmp,
@@ -238,8 +246,11 @@ for path_dir_per in test_list_path:
     for ii in range(len(video)):
         ss = video[ii]
         video_out.append(image_compose_width(video_out_condition[ii], ss))
+        # video_out.append(ss)
     os.makedirs("./outputs", exist_ok=True)
-    save_video(video_out, "outputs/video_720P_{}_{}.mp4".format(ref_image_path.split('/')[-1], pose_file_path.split('/')[-1]), fps=15, quality=5)
-
+    
+    save_path = f"outputs/video_720P_{ref_image_path.split('/')[-1]}_{pose_file_path.split('/')[-1]}_{datetime.now()}.mp4"
+    save_video(video_out, save_path, fps=15, quality=5)
+    print(f"save video: {save_path}")
 
     # CUDA_VISIBLE_DEVICES="0" python examples/unianimate_wan/inference_unianimate_wan_720p.py

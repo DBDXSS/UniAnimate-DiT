@@ -31,30 +31,30 @@ def flash_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, num_heads
         v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
         x = F.scaled_dot_product_attention(q, k, v)
         x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
-    elif FLASH_ATTN_3_AVAILABLE:
-        q = rearrange(q, "b s (n d) -> b s n d", n=num_heads)
-        k = rearrange(k, "b s (n d) -> b s n d", n=num_heads)
-        v = rearrange(v, "b s (n d) -> b s n d", n=num_heads)
-        x, _ = flash_attn_interface.flash_attn_func(q, k, v)
-        x = rearrange(x, "b s n d -> b s (n d)", n=num_heads)
-    elif FLASH_ATTN_2_AVAILABLE:
-        q = rearrange(q, "b s (n d) -> b s n d", n=num_heads)
-        k = rearrange(k, "b s (n d) -> b s n d", n=num_heads)
-        v = rearrange(v, "b s (n d) -> b s n d", n=num_heads)
-        x = flash_attn.flash_attn_func(q, k, v)
-        x = rearrange(x, "b s n d -> b s (n d)", n=num_heads)
+    # elif FLASH_ATTN_3_AVAILABLE:
+    #     q = rearrange(q, "b s (n d) -> b s n d", n=num_heads)
+    #     k = rearrange(k, "b s (n d) -> b s n d", n=num_heads)
+    #     v = rearrange(v, "b s (n d) -> b s n d", n=num_heads)
+    #     x, _ = flash_attn_interface.flash_attn_func(q, k, v)
+    #     x = rearrange(x, "b s n d -> b s (n d)", n=num_heads)
+    # elif FLASH_ATTN_2_AVAILABLE:
+    #     q = rearrange(q, "b s (n d) -> b s n d", n=num_heads)
+    #     k = rearrange(k, "b s (n d) -> b s n d", n=num_heads)
+    #     v = rearrange(v, "b s (n d) -> b s n d", n=num_heads)
+    #     x = flash_attn.flash_attn_func(q, k, v)
+    #     x = rearrange(x, "b s n d -> b s (n d)", n=num_heads)
     elif SAGE_ATTN_AVAILABLE:
         q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
         k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
         v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
         x = sageattn(q, k, v)
         x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
-    else:
-        q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
-        k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
-        v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
-        x = F.scaled_dot_product_attention(q, k, v)
-        x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
+    # else:
+    #     q = rearrange(q, "b s (n d) -> b n s d", n=num_heads)
+    #     k = rearrange(k, "b s (n d) -> b n s d", n=num_heads)
+    #     v = rearrange(v, "b s (n d) -> b n s d", n=num_heads)
+    #     x = F.scaled_dot_product_attention(q, k, v)
+    #     x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
     return x
 
 

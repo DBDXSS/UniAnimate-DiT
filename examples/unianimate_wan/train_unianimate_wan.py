@@ -157,13 +157,14 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
 
         
         if 'TikTok' in data_list:
-            
-            self.pose_dir = "./data/example_dataset/TikTok/"
+            print(base_path)
+            self.pose_dir = base_path # "./data/example_dataset/TikTok/"
             file_list = os.listdir(self.pose_dir)
             print("!!! all dataset length: ", len(file_list))
             # 
             for iii_index in file_list:
-                    self.video_list.append(self.pose_dir+iii_index)
+                # self.video_list.append(self.pose_dir+iii_index)
+                self.video_list.append(os.path.join(self.pose_dir,iii_index))
 
             self.use_pose = True
             print("!!! dataset length: ", len(self.video_list))
@@ -174,8 +175,7 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
             print("!!! all dataset length (UBC_Fashion): ", len(file_list))
             
             for iii_index in file_list:
-            #     
-                    self.video_list.append(self.pose_dir + iii_index)
+                self.video_list.append(self.pose_dir + iii_index)
 
             self.use_pose = True
             print("!!! dataset length: ", len(self.video_list))
@@ -186,7 +186,6 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
             print("!!! all dataset length (self_collected_videos_pose): ", len(file_list))
             # 
             for iii_index in file_list:
-                
                 self.video_list.append(self.pose_dir+iii_index)
 
             self.use_pose = True
@@ -428,6 +427,7 @@ class LightningModelForTrain_onestage(pl.LightningModule):
     ):
         super().__init__()
         model_manager = ModelManager(torch_dtype=torch.bfloat16, device="cpu")
+        print(dit_path)
         if os.path.isfile(dit_path):
             model_manager.load_models([dit_path])
         else:
@@ -783,6 +783,12 @@ def parse_args():
         help="Image width.",
     )
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="batch_size",
+    )
+    parser.add_argument(
         "--dataloader_num_workers",
         type=int,
         default=1,
@@ -892,7 +898,7 @@ def data_process(args):
     dataloader = torch.utils.data.DataLoader(
         dataset,
         shuffle=False,
-        batch_size=1,
+        batch_size=args.batch_size, # 1
         num_workers=args.dataloader_num_workers
     )
     model = LightningModelForDataProcess(
@@ -919,6 +925,7 @@ class LightningModelForDataProcess(pl.LightningModule):
         if image_encoder_path is not None:
             model_path.append(image_encoder_path)
         model_manager = ModelManager(torch_dtype=torch.bfloat16, device="cpu")
+        print(model_path)
         model_manager.load_models(model_path)
         self.pipe = WanVideoPipeline.from_model_manager(model_manager)
 
@@ -956,7 +963,7 @@ def train(args):
     dataloader = torch.utils.data.DataLoader(
         dataset,
         shuffle=True,
-        batch_size=1,
+        batch_size=args.batch_size, # 1
         num_workers=args.dataloader_num_workers
     )
     model_VAE = LightningModelForDataProcess(
@@ -1023,11 +1030,11 @@ def train_onestage(args):
         is_i2v=args.image_encoder_path is not None,
         steps_per_epoch=args.steps_per_epoch,
     )
-    
+    # print(dataset)
     dataloader = torch.utils.data.DataLoader(
         dataset,
         shuffle=True,
-        batch_size=1,
+        batch_size=args.batch_size, # 1
         num_workers=args.dataloader_num_workers
     )
     model_VAE = LightningModelForDataProcess(

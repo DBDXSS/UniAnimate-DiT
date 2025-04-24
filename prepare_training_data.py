@@ -28,7 +28,7 @@ import oss2 as oss
 import os.path as osp
 import multiprocessing as mp
 import sys
-
+sys.path.append("dwpose")  
 import util
 from wholebody import Wholebody
 
@@ -142,9 +142,9 @@ def draw_pose(pose, H, W):
 
     return canvas_without_face, canvas
 
-def dw_func(_id, file_path, dwpose_model, dwpose_woface_folder='tmp_dwpose_wo_face', dwpose_withface_folder='tmp_dwpose_with_face'):
+def dw_func(data_path, file_path, dwpose_model, dwpose_woface_folder='tmp_dwpose_wo_face', dwpose_withface_folder='tmp_dwpose_with_face'):
     video_name = (file_path).split('/')[-1].split('.mp4')[0]
-    dwpose_woface_folder = os.path.join("./20240902_videos/training_video_pose", video_name)
+    dwpose_woface_folder = os.path.join(data_path, "training_video_pose", video_name)
     
     
     frame_all = []
@@ -209,7 +209,7 @@ def dw_func(_id, file_path, dwpose_model, dwpose_woface_folder='tmp_dwpose_wo_fa
             pickle.dump(pose_frame_all_face,tf)
         
 
-def mp_main(ii, dwpose_model, video_paths, posevideo_dir):
+def mp_main(data_path, dwpose_model, video_paths, posevideo_dir):
     
     
     dwpose_model = DWposeDetector()  
@@ -220,7 +220,7 @@ def mp_main(ii, dwpose_model, video_paths, posevideo_dir):
         
         logger.info(f"{i}/{len(video_paths)}, {file_path}")
         
-        dw_func(i, file_path, dwpose_model)
+        dw_func(data_path, file_path, dwpose_model)
 
 
 
@@ -231,7 +231,7 @@ logger = get_logger('dw pose extraction')
 if __name__=='__main__':
     # mp.set_start_method('spawn')
     
-    posevideo_dir = "./20240902_videos"
+    posevideo_dir = "./train_data"
     video_paths = os.listdir(posevideo_dir)
     video_list = video_paths
     
@@ -241,5 +241,5 @@ if __name__=='__main__':
     
     dwpose_model = None
 
-    mp_main(tid, dwpose_model, video_list, posevideo_dir)
+    mp_main(posevideo_dir, dwpose_model, video_list, posevideo_dir)
     
