@@ -15,124 +15,8 @@ import torch.nn.functional as F
 import torchvision.transforms as T
 from PIL import Image, ImageFilter
 import  torch.nn  as nn
+from examples.unianimate_wan.config import parse_args
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-
-
-class TextVideoDataset(torch.utils.data.Dataset):
-    def __init__(self, base_path, metadata_path, max_num_frames=81, frame_interval=1, num_frames=81, height=480, width=832, is_i2v=False):
-        metadata = pd.read_csv(metadata_path)
-        self.path = [os.path.join(base_path, "train", file_name) for file_name in metadata["file_name"]]
-        self.text = metadata["text"].to_list()
-        
-        self.max_num_frames = max_num_frames
-        self.frame_interval = frame_interval
-        self.num_frames = num_frames
-        self.height = height
-        self.width = width
-        self.is_i2v = is_i2v
-            
-        self.frame_process = v2.Compose([
-            v2.CenterCrop(size=(height, width)),
-            v2.Resize(size=(height, width), antialias=True),
-            v2.ToTensor(),
-            v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-        ])
-        
-        
-    def crop_and_resize(self, image):
-        width, height = image.size
-        scale = max(self.width / width, self.height / height)
-        image = torchvision.transforms.functional.resize(
-            image,
-            (round(height*scale), round(width*scale)),
-            interpolation=torchvision.transforms.InterpolationMode.BILINEAR
-        )
-        return image
-
-    def resize(self, image):
-        width, height = image.size
-        # scale = max(self.width / width, self.height / height)
-        image = torchvision.transforms.functional.resize(
-            image,
-            (self.height, self.width),
-            interpolation=torchvision.transforms.InterpolationMode.BILINEAR
-        )
-        return torch.from_numpy(np.array(image))
-
-
-    def load_frames_using_imageio(self, file_path, max_num_frames, start_frame_id, interval, num_frames, frame_process):
-        reader = imageio.get_reader(file_path)
-        if reader.count_frames() < max_num_frames or reader.count_frames() - 1 < start_frame_id + (num_frames - 1) * interval:
-            reader.close()
-            return None
-        
-        frames = []
-        first_frame = None
-        for frame_id in range(num_frames):
-            frame = reader.get_data(start_frame_id + frame_id * interval)
-            frame = Image.fromarray(frame)
-            frame = self.crop_and_resize(frame)
-            if first_frame is None:
-                first_frame = np.array(frame)
-            frame = frame_process(frame)
-            frames.append(frame)
-        reader.close()
-
-        frames = torch.stack(frames, dim=0)
-        frames = rearrange(frames, "T C H W -> C T H W")
-
-        if self.is_i2v:
-            return frames, first_frame
-        else:
-            return frames
-
-
-    def load_video(self, file_path):
-        start_frame_id = torch.randint(0, self.max_num_frames - (self.num_frames - 1) * self.frame_interval, (1,))[0]
-        frames = self.load_frames_using_imageio(file_path, self.max_num_frames, start_frame_id, self.frame_interval, self.num_frames, self.frame_process)
-        return frames
-    
-    
-    def is_image(self, file_path):
-        file_ext_name = file_path.split(".")[-1]
-        if file_ext_name.lower() in ["jpg", "jpeg", "png", "webp"]:
-            return True
-        return False
-    
-    
-    def load_image(self, file_path):
-        frame = Image.open(file_path).convert("RGB")
-        frame = self.crop_and_resize(frame)
-        first_frame = frame
-        frame = self.frame_process(frame)
-        frame = rearrange(frame, "C H W -> C 1 H W")
-        return frame
-
-
-    def __getitem__(self, data_id):
-        text = self.text[data_id]
-        path = self.path[data_id]
-        if self.is_image(path):
-            if self.is_i2v:
-                raise ValueError(f"{path} is not a video. I2V model doesn't support image-to-image training.")
-            video = self.load_image(path)
-        else:
-            video = self.load_video(path)
-        if self.is_i2v:
-            video, first_frame = video
-            data = {"text": text, "video": video, "path": path, "first_frame": first_frame}
-        else:
-            data = {"text": text, "video": video, "path": path}
-        return data
-    
-
-    def __len__(self):
-        return len(self.path)
-
-
-
-
 
 class TextVideoDataset_onestage(torch.utils.data.Dataset):
     def __init__(self, base_path, metadata_path, max_num_frames=81, frame_interval=2, num_frames=81, height=480, width=832, is_i2v=False,steps_per_epoch=1):
@@ -147,52 +31,22 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
         self.width = width
         self.is_i2v = is_i2v
         self.steps_per_epoch = steps_per_epoch
-        
-        # data_list = ['UBC_Fashion', 'self_collected_videos_pose', 'TikTok']
-        data_list = ['TikTok']
+
         self.sample_fps = frame_interval
         self.max_frames = max_num_frames
         self.misc_size = [height, width]
         self.video_list = []
-
         
-        if 'TikTok' in data_list:
-            print(base_path)
-            self.pose_dir = base_path # "./data/example_dataset/TikTok/"
-            file_list = os.listdir(self.pose_dir)
-            print("!!! all dataset length: ", len(file_list))
-            # 
-            for iii_index in file_list:
-                # self.video_list.append(self.pose_dir+iii_index)
-                self.video_list.append(os.path.join(self.pose_dir,iii_index))
+        self.pose_dir = base_path
+        file_list = os.listdir(self.pose_dir)
+        print("!!! all dataset length: ", len(file_list))
+        for iii_index in file_list:
+            self.video_list.append(os.path.join(self.pose_dir,iii_index))
 
-            self.use_pose = True
-            print("!!! dataset length: ", len(self.video_list))
-        
-        if 'UBC_Fashion' in data_list:
-            self.pose_dir = "path_of_UBC_Fashion"
-            file_list = os.listdir(self.pose_dir)
-            print("!!! all dataset length (UBC_Fashion): ", len(file_list))
-            
-            for iii_index in file_list:
-                self.video_list.append(self.pose_dir + iii_index)
-
-            self.use_pose = True
-            print("!!! dataset length: ", len(self.video_list))
-        if 'self_collected_videos_pose' in data_list:
-            
-            self.pose_dir = "path_of_your_self_data"
-            file_list = os.listdir(self.pose_dir)
-            print("!!! all dataset length (self_collected_videos_pose): ", len(file_list))
-            # 
-            for iii_index in file_list:
-                self.video_list.append(self.pose_dir+iii_index)
-
-            self.use_pose = True
-            print("!!! dataset length: ", len(self.video_list))
+        self.use_pose = True
+        print("!!! dataset length: ", len(self.video_list))
 
         random.shuffle(self.video_list)
-            
         self.frame_process = v2.Compose([
             # v2.CenterCrop(size=(height, width)),
             v2.Resize(size=(height, width), antialias=True),
@@ -202,7 +56,6 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
 
     def resize(self, image):
         width, height = image.size
-        # 
         image = torchvision.transforms.functional.resize(
             image,
             (self.height, self.width),
@@ -221,7 +74,6 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
         )
         return image
 
-
     def load_frames_using_imageio(self, file_path, max_num_frames, start_frame_id, interval, num_frames, frame_process):
         reader = imageio.get_reader(file_path)
         if reader.count_frames() < max_num_frames or reader.count_frames() - 1 < start_frame_id + (num_frames - 1) * interval:
@@ -248,19 +100,16 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
         else:
             return frames
 
-
     def load_video(self, file_path):
         start_frame_id = torch.randint(0, self.max_num_frames - (self.num_frames - 1) * self.frame_interval, (1,))[0]
         frames = self.load_frames_using_imageio(file_path, self.max_num_frames, start_frame_id, self.frame_interval, self.num_frames, self.frame_process)
         return frames
-    
     
     def is_image(self, file_path):
         file_ext_name = file_path.split(".")[-1]
         if file_ext_name.lower() in ["jpg", "jpeg", "png", "webp"]:
             return True
         return False
-    
     
     def load_image(self, file_path):
         frame = Image.open(file_path).convert("RGB")
@@ -270,8 +119,6 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
         frame = rearrange(frame, "C H W -> C 1 H W")
         return frame
 
-
-    # def __getitem__(self, data_id):
     def __getitem__(self, index):
         index = index % len(self.video_list)
         success=False
@@ -345,9 +192,7 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
 
                 have_frames = len(frame_list)>0
                 middle_indix = 0
-
                 if have_frames:
-
                     l_hight = random_ref_frame.size[1]
                     l_width = random_ref_frame.size[0]
 
@@ -357,10 +202,8 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
                     y1 = random.randint(0, l_hight//14)
                     y2 = random.randint(0, l_hight//14)
                     
-                    
                     random_ref_frame = random_ref_frame.crop((x1, y1,l_width-x2, l_hight-y2))
                     ref_frame = random_ref_frame 
-                    # 
                     
                     random_ref_frame_tmp = torch.from_numpy(np.array(self.resize(random_ref_frame)))
                     random_ref_dwpose_tmp = torch.from_numpy(np.array(self.resize(random_ref_dwpose.crop((x1, y1,l_width-x2, l_hight-y2))))) # [3, 512, 320]
@@ -372,8 +215,7 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
                 dwpose_data = torch.zeros(self.max_frames, 3, self.misc_size[0], self.misc_size[1])
                 
                 if have_frames:
-                    video_data[:len(frame_list), ...] = video_data_tmp      
-                    
+                    video_data[:len(frame_list), ...] = video_data_tmp       
                     dwpose_data[:len(frame_list), ...] = dwpose_data_tmp
                     
                 video_data = video_data.permute(1,0,2,3)
@@ -382,19 +224,14 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
                 caption = "a person is dancing"
                 break
             except Exception as e:
-                # 
                 caption = "a person is dancing"
-                # 
                 video_data = torch.zeros(3, self.max_frames, self.misc_size[0], self.misc_size[1])  
                 random_ref_frame_tmp = torch.zeros(self.misc_size[0], self.misc_size[1], 3)
                 vit_image = torch.zeros(3,self.misc_size[0], self.misc_size[1])
-                
                 dwpose_data = torch.zeros(3, self.max_frames, self.misc_size[0], self.misc_size[1])  
-                # 
                 random_ref_dwpose_data = torch.zeros(3, self.max_frames, self.misc_size[0], self.misc_size[1])  
                 print('{} read video frame failed with error: {}'.format(path_dir, e))
                 continue
-
 
         text = caption 
         path = path_dir 
@@ -405,14 +242,9 @@ class TextVideoDataset_onestage(torch.utils.data.Dataset):
         else:
             data = {"text": text, "video": video, "path": path}
         return data
-    
 
     def __len__(self):
-        
         return len(self.video_list)
- 
-
-
 
 class LightningModelForTrain_onestage(pl.LightningModule):
     def __init__(
@@ -490,9 +322,6 @@ class LightningModelForTrain_onestage(pl.LightningModule):
         self.use_gradient_checkpointing = use_gradient_checkpointing
         self.use_gradient_checkpointing_offload = use_gradient_checkpointing_offload
         
-
-        
-        
     def freeze_parameters(self):
         # Freeze parameters
         self.pipe.requires_grad_(False)
@@ -502,7 +331,6 @@ class LightningModelForTrain_onestage(pl.LightningModule):
         self.pipe_VAE.eval()
         self.randomref_embedding_pose.train()
         self.dwpose_embedding.train()
-        
         
     def add_lora_to_model(self, model, lora_rank=4, lora_alpha=4, lora_target_modules="q,k,v,o,ffn.0,ffn.2", init_lora_weights="kaiming", pretrained_lora_path=None, state_dict_converter=None):
         # Add LoRA to UNet
@@ -560,8 +388,6 @@ class LightningModelForTrain_onestage(pl.LightningModule):
             num_updated_keys = len(all_keys) - len(missing_keys)
             num_unexpected_keys = len(unexpected_keys)
             print(f"{num_updated_keys} parameters are loaded from {pretrained_lora_path}. {num_unexpected_keys} parameters are unexpected.")
-    
-    
 
     def training_step(self, batch, batch_idx):
         # batch["dwpose_data"]/255.: [1, 3, 81, 832, 480], batch["random_ref_dwpose_data"]/255.: [1, 832, 480, 3]
@@ -635,7 +461,6 @@ class LightningModelForTrain_onestage(pl.LightningModule):
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
-
     def configure_optimizers(self):
         # trainable_modules = filter(lambda p: p.requires_grad, self.pipe.denoising_model().parameters())
         # optimizer = torch.optim.AdamW(trainable_modules, lr=self.learning_rate)
@@ -647,7 +472,6 @@ class LightningModelForTrain_onestage(pl.LightningModule):
         ]
         optimizer = torch.optim.AdamW(trainable_modules, lr=self.learning_rate)
         return optimizer
-    
 
     def on_save_checkpoint(self, checkpoint):
         checkpoint.clear()
@@ -665,258 +489,6 @@ class LightningModelForTrain_onestage(pl.LightningModule):
             if name in trainable_param_names:
                 lora_state_dict[name] = param
         checkpoint.update(lora_state_dict)
-
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Simple example of a training script.")
-    parser.add_argument(
-        "--task",
-        type=str,
-        default="data_process",
-        required=True,
-        choices=["data_process", "train"],
-        help="Task. `data_process` or `train`.",
-    )
-    parser.add_argument(
-        "--dataset_path",
-        type=str,
-        default=None,
-        required=True,
-        help="The path of the Dataset.",
-    )
-    parser.add_argument(
-        "--output_path",
-        type=str,
-        default="./",
-        help="Path to save the model.",
-    )
-    parser.add_argument(
-        "--text_encoder_path",
-        type=str,
-        default="/mnt/data/hnqiu/wanx2.1_t2v/WanX2.1-T2V-14B/models_t5_umt5-xxl-enc-bf16.pth",
-        help="Path of text encoder.",
-    )
-    parser.add_argument(
-        "--image_encoder_path",
-        type=str,
-        default=None,
-        help="Path of image encoder.",
-    )
-    parser.add_argument(
-        "--vae_path",
-        type=str,
-        default="/mnt/data/hnqiu/wanx2.1_t2v/WanX2.1-T2V-14B/WanX2.1_VAE.pth",
-        help="Path of VAE.",
-    )
-    parser.add_argument(
-        "--dit_path",
-        type=str,
-        default=None,
-        help="Path of DiT.",
-    )
-    parser.add_argument(
-        "--tiled",
-        # default=False,
-        default=True,
-        action="store_true",
-        help="Whether enable tile encode in VAE. This option can reduce VRAM required.",
-    )
-    parser.add_argument(
-        "--tile_size_height",
-        type=int,
-        default=34,
-        help="Tile size (height) in VAE.",
-    )
-    parser.add_argument(
-        "--tile_size_width",
-        type=int,
-        default=34,
-        help="Tile size (width) in VAE.",
-    )
-    parser.add_argument(
-        "--tile_stride_height",
-        type=int,
-        default=18,
-        help="Tile stride (height) in VAE.",
-    )
-    parser.add_argument(
-        "--tile_stride_width",
-        type=int,
-        default=16,
-        help="Tile stride (width) in VAE.",
-    )
-    parser.add_argument(
-        "--steps_per_epoch",
-        type=int,
-        default=500,
-        help="Number of steps per epoch.",
-    )
-    parser.add_argument(
-        "--num_frames",
-        type=int,
-        default=81,
-        help="Number of frames.",
-    )
-    # parser.add_argument(
-    #     "--height",
-    #     type=int,
-    #     default=480,
-    #     help="Image height.",
-    # )
-    # parser.add_argument(
-    #     "--width",
-    #     type=int,
-    #     default=832,
-    #     help="Image width.",
-    # )
-    parser.add_argument(
-        "--height",
-        type=int,
-        default=832,
-        help="Image height.",
-    )
-    parser.add_argument(
-        "--width",
-        type=int,
-        default=480,
-        help="Image width.",
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=1,
-        help="batch_size",
-    )
-    parser.add_argument(
-        "--dataloader_num_workers",
-        type=int,
-        default=1,
-        help="Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process.",
-    )
-    parser.add_argument(
-        "--learning_rate",
-        type=float,
-        default=1e-5,
-        help="Learning rate.",
-    )
-    parser.add_argument(
-        "--accumulate_grad_batches",
-        type=int,
-        default=1,
-        help="The number of batches in gradient accumulation.",
-    )
-    parser.add_argument(
-        "--max_epochs",
-        type=int,
-        default=1,
-        help="Number of epochs.",
-    )
-    parser.add_argument(
-        "--lora_target_modules",
-        type=str,
-        default="q,k,v,o,ffn.0,ffn.2",
-        help="Layers with LoRA modules.",
-    )
-    parser.add_argument(
-        "--init_lora_weights",
-        type=str,
-        default="kaiming",
-        choices=["gaussian", "kaiming"],
-        help="The initializing method of LoRA weight.",
-    )
-    parser.add_argument(
-        "--training_strategy",
-        type=str,
-        default="auto",
-        choices=["auto", "deepspeed_stage_1", "deepspeed_stage_2", "deepspeed_stage_3"],
-        help="Training strategy",
-    )
-    parser.add_argument(
-        "--lora_rank",
-        type=int,
-        default=4,
-        help="The dimension of the LoRA update matrices.",
-    )
-    parser.add_argument(
-        "--lora_alpha",
-        type=float,
-        default=4.0,
-        help="The weight of the LoRA update matrices.",
-    )
-    parser.add_argument(
-        "--use_gradient_checkpointing",
-        default=False,
-        action="store_true",
-        help="Whether to use gradient checkpointing.",
-    )
-    parser.add_argument(
-        "--use_gradient_checkpointing_offload",
-        default=False,
-        action="store_true",
-        help="Whether to use gradient checkpointing offload.",
-    )
-    parser.add_argument(
-        "--train_architecture",
-        type=str,
-        default="lora",
-        choices=["lora", "full"],
-        help="Model structure to train. LoRA training or full training.",
-    )
-    parser.add_argument(
-        "--pretrained_lora_path",
-        type=str,
-        default=None,
-        help="Pretrained LoRA path. Required if the training is resumed.",
-    )
-    parser.add_argument(
-        "--use_swanlab",
-        default=False,
-        action="store_true",
-        help="Whether to use SwanLab logger.",
-    )
-    parser.add_argument(
-        "--swanlab_mode",
-        default=None,
-        help="SwanLab mode (cloud or local).",
-    )
-    args = parser.parse_args()
-    return args
-
-
-def data_process(args):
-    dataset = TextVideoDataset(
-        args.dataset_path,
-        os.path.join(args.dataset_path, "metadata.csv"),
-        max_num_frames=args.num_frames,
-        frame_interval=1,
-        num_frames=args.num_frames,
-        height=args.height,
-        width=args.width,
-        is_i2v=args.image_encoder_path is not None
-    )
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
-        shuffle=False,
-        batch_size=args.batch_size, # 1
-        num_workers=args.dataloader_num_workers
-    )
-    model = LightningModelForDataProcess(
-        text_encoder_path=args.text_encoder_path,
-        image_encoder_path=args.image_encoder_path,
-        vae_path=args.vae_path,
-        tiled=args.tiled,
-        tile_size=(args.tile_size_height, args.tile_size_width),
-        tile_stride=(args.tile_stride_height, args.tile_stride_width),
-    )
-    trainer = pl.Trainer(
-        accelerator="gpu",
-        devices="auto",
-        default_root_dir=args.output_path,
-    )
-    trainer.test(model, dataloader)
-
-
 
 class LightningModelForDataProcess(pl.LightningModule):
     def __init__(self, text_encoder_path, vae_path, image_encoder_path=None, tiled=False, tile_size=(34, 34), tile_stride=(18, 16)):
@@ -950,75 +522,8 @@ class LightningModelForDataProcess(pl.LightningModule):
                 image_emb = {}
             data = {"latents": latents, "prompt_emb": prompt_emb, "image_emb": image_emb}
             torch.save(data, path + ".tensors.pth")
-
-
-    
-def train(args):
-    dataset = TensorDataset(
-        args.dataset_path,
-        os.path.join(args.dataset_path, "metadata.csv"),
-        steps_per_epoch=args.steps_per_epoch,
-    )
-    
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
-        shuffle=True,
-        batch_size=args.batch_size, # 1
-        num_workers=args.dataloader_num_workers
-    )
-    model_VAE = LightningModelForDataProcess(
-        text_encoder_path=args.text_encoder_path,
-        image_encoder_path=args.image_encoder_path,
-        vae_path=args.vae_path,
-        tiled=args.tiled,
-        tile_size=(args.tile_size_height, args.tile_size_width),
-        tile_stride=(args.tile_stride_height, args.tile_stride_width),
-    )
-    model = LightningModelForTrain(
-        dit_path=args.dit_path,
-        learning_rate=args.learning_rate,
-        train_architecture=args.train_architecture,
-        lora_rank=args.lora_rank,
-        lora_alpha=args.lora_alpha,
-        lora_target_modules=args.lora_target_modules,
-        init_lora_weights=args.init_lora_weights,
-        use_gradient_checkpointing=args.use_gradient_checkpointing,
-        use_gradient_checkpointing_offload=args.use_gradient_checkpointing_offload,
-        pretrained_lora_path=args.pretrained_lora_path,
-        model_VAE = model_VAE,
-        
-    )
-    if args.use_swanlab:
-        from swanlab.integration.pytorch_lightning import SwanLabLogger
-        swanlab_config = {"UPPERFRAMEWORK": "DiffSynth-Studio"}
-        swanlab_config.update(vars(args))
-        swanlab_logger = SwanLabLogger(
-            project="wan", 
-            name="wan",
-            config=swanlab_config,
-            mode=args.swanlab_mode,
-            logdir=os.path.join(args.output_path, "swanlog"),
-        )
-        logger = [swanlab_logger]
-    else:
-        logger = None
-    trainer = pl.Trainer(
-        max_epochs=args.max_epochs,
-        accelerator="gpu",
-        devices="auto",
-        precision="bf16",
-        strategy=args.training_strategy,
-        default_root_dir=args.output_path,
-        accumulate_grad_batches=args.accumulate_grad_batches,
-        callbacks=[pl.pytorch.callbacks.ModelCheckpoint(save_top_k=-1)],
-        logger=logger,
-    )
-    trainer.fit(model, dataloader)
-
-
     
 def train_onestage(args):
-    
     dataset = TextVideoDataset_onestage(
         args.dataset_path,
         os.path.join(args.dataset_path, "metadata.csv"),
@@ -1088,15 +593,4 @@ def train_onestage(args):
 
 if __name__ == '__main__':
     args = parse_args()
-    if args.task == "data_process":
-        data_process(args)
-    elif args.task == "train":
-        # support VAE and DiT in a single stage
-        train_onestage(args)
-
-
-
-# lora finetune
-# CUDA_VISIBLE_DEVICES="0" python examples/unianimate_wan/train_unianimate_wan.py   --task train   --train_architecture lora --lora_rank 64 --lora_alpha 64  --dataset_path data/example_dataset   --output_path ./models_out_one_GPU   --dit_path "/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00001-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00002-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00003-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00004-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00005-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00006-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00007-of-00007.safetensors"    --max_epochs 10   --learning_rate 1e-4   --accumulate_grad_batches 1   --use_gradient_checkpointing --image_encoder_path "/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"  --use_gradient_checkpointing_offload 
-# CUDA_VISIBLE_DEVICES="0,1" python examples/unianimate_wan/train_unianimate_wan.py  --task train   --train_architecture lora --lora_rank 128 --lora_alpha 128  --dataset_path data/example_dataset   --output_path ./models_out   --dit_path "/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00001-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00002-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00003-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00004-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00005-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00006-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00007-of-00007.safetensors"     --max_epochs 10   --learning_rate 1e-4   --accumulate_grad_batches 1   --use_gradient_checkpointing --image_encoder_path "/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth" --use_gradient_checkpointing_offload --training_strategy "deepspeed_stage_2" 
-# CUDA_VISIBLE_DEVICES="0,1,2,3" python examples/unianimate_wan/train_unianimate_wan.py  --task train   --train_architecture lora --lora_rank 128 --lora_alpha 128  --dataset_path data/example_dataset   --output_path ./models_out   --dit_path "/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00001-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00002-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00003-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00004-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00005-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00006-of-00007.safetensors,/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/diffusion_pytorch_model-00007-of-00007.safetensors"     --max_epochs 10   --learning_rate 1e-4   --accumulate_grad_batches 1   --use_gradient_checkpointing --image_encoder_path "/mnt/user/VideoGeneration_Baselines/Wan2.1/Wan2.1-I2V-14B-720P/models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth" --use_gradient_checkpointing_offload --training_strategy "deepspeed_stage_2" 
+    train_onestage(args)

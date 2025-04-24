@@ -28,9 +28,8 @@ import oss2 as oss
 import os.path as osp
 import multiprocessing as mp
 import sys
-sys.path.append("dwpose")  
-import util
-from wholebody import Wholebody
+from dwpose import util
+from dwpose.wholebody import Wholebody
 
 
 def get_logger(name="essmc2"):
@@ -49,7 +48,6 @@ def get_logger(name="essmc2"):
 
 class DWposeDetector:
     def __init__(self):
-
         self.pose_estimation = Wholebody()
 
     def __call__(self, oriImg):
@@ -146,7 +144,6 @@ def dw_func(data_path, file_path, dwpose_model, dwpose_woface_folder='tmp_dwpose
     video_name = (file_path).split('/')[-1].split('.mp4')[0]
     dwpose_woface_folder = os.path.join(data_path, "training_video_pose", video_name)
     
-    
     frame_all = []
     videoCapture = cv2.VideoCapture(file_path)
     iiii = 0
@@ -155,14 +152,12 @@ def dw_func(data_path, file_path, dwpose_model, dwpose_woface_folder='tmp_dwpose
         ret, frame = videoCapture.read()
         iiii += 1
         if ret:
-            
             frame_all.append(frame)
         else:
             break
     
     videoCapture.release()
 
-    
     results_vis = []
     video_frame_all = {}
     pose_frame_all = {}
@@ -172,7 +167,6 @@ def dw_func(data_path, file_path, dwpose_model, dwpose_woface_folder='tmp_dwpose
         for i_index, frame in enumerate(frame_all):
             frame_name  = str(i_index).zfill(6)+".jpg"
 
-            
             if frame.shape[1]>frame.shape[0]:
                 margin = (frame.shape[1] - frame.shape[0])//2
                 frame = frame[:,margin:-margin]
@@ -181,7 +175,6 @@ def dw_func(data_path, file_path, dwpose_model, dwpose_woface_folder='tmp_dwpose
             if frame_w>=2048:
                 frame = cv2.resize(frame,(frame_w//2,frame_h//2)) 
             
-
             _, img_encode = cv2.imencode('.jpg', frame)
             img_bytes = img_encode.tobytes()
             video_frame_all[frame_name] = img_bytes
@@ -196,8 +189,6 @@ def dw_func(data_path, file_path, dwpose_model, dwpose_woface_folder='tmp_dwpose
             img_bytes = img_encode.tobytes()
             pose_frame_all_face[frame_name] = img_bytes
             
-            
-
         os.makedirs(dwpose_woface_folder, exist_ok=True)
         with open(os.path.join(dwpose_woface_folder+'/frame_data.pkl'), "wb") as tf:
             pickle.dump(video_frame_all,tf)
@@ -209,37 +200,21 @@ def dw_func(data_path, file_path, dwpose_model, dwpose_woface_folder='tmp_dwpose
             pickle.dump(pose_frame_all_face,tf)
         
 
-def mp_main(data_path, dwpose_model, video_paths, posevideo_dir):
-    
-    
+def mp_main(data_path, video_paths, posevideo_dir):
     dwpose_model = DWposeDetector()  
-
     for i, file_path in enumerate(video_paths):
-        
         file_path = os.path.join(posevideo_dir, file_path)
-        
         logger.info(f"{i}/{len(video_paths)}, {file_path}")
-        
         dw_func(data_path, file_path, dwpose_model)
-
-
-
     
 logger = get_logger('dw pose extraction')
-
-
 if __name__=='__main__':
     # mp.set_start_method('spawn')
-    
     posevideo_dir = "./train_data"
     video_paths = os.listdir(posevideo_dir)
     video_list = video_paths
-    
+
     logger.info("There are {} videos for extracting poses".format(len(video_paths)))
-
     logger.info('LOAD: DW Pose Model')
-    
-    dwpose_model = None
 
-    mp_main(posevideo_dir, dwpose_model, video_list, posevideo_dir)
-    
+    mp_main(posevideo_dir, video_list, posevideo_dir)
