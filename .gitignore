@@ -20,3 +20,4 @@ SageAttention/
 train_data/
 20240902_videos/
 models_out_one_GPU/
+.vscode/
